@@ -1,0 +1,6 @@
+
+-Create bounding box for boat to be in
+-Create boat controls: power, direction od rudder, stearing
+-Create simulation of forces acting on boat
+-Separate key handling from main loop
+-Separate physics from main loop

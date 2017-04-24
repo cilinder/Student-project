@@ -14,6 +14,7 @@ from Box2D import *
 import Boat
 from Boat import *
 
+import framework
 
 # --- constants ---
 # Box2D deals with meters, but we want to display pixels,
@@ -25,6 +26,7 @@ SCREEN_WIDTH, SCREEN_HEIGHT = 640, 480
 SCREEN_COLOR = (0,0,255,0)
 BLACK = (0,0,0,0)
 RED = (255,0,0,255)
+BLUE = (0,0,255,0)
 
 x_spacing = 2
 y_spacing = 2
@@ -33,6 +35,27 @@ default_string_display_offset = 0
 offset = 0
 strings_to_be_displayed = []
 
+
+def checkEventQue():
+    global display_grid
+    global running
+    global x_spacing, y_spacing
+
+    # Check the event que
+    for event in pygame.event.get():
+        if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
+            # The user closed the window or pressed escape
+            running = False
+        if event.type == KEYDOWN:
+            if event.key == K_g:
+                display_grid = not display_grid
+            if event.key == K_PLUS:
+                m = min(SCREEN_HEIGHT,SCREEN_WIDTH) / PPM
+                x_spacing = min(m, x_spacing + 0.5)
+                y_spacing = min(m, y_spacing + 0.5)
+            if event.key == K_MINUS:
+                x_spacing = max(0.5, x_spacing - 0.5)
+                y_spacing = max(0.5, y_spacing - 0.5)
 
 def handleKeyboardInput(keys):
 
@@ -93,34 +116,24 @@ def addStringToDisplay(string, location=None, color=(0,0,0), fontSize=15):
         return
 
     if location is None:
-        location = (2, default_string_display_offset)
+        location = from_pygame_to_pybox2d_coordinates((2, default_string_display_offset))
         default_string_display_offset += fontSize
 
     strings_to_be_displayed.append((string, location, color, fontSize))
 
 
-def displayAllStrings():
+def drawAllStrings():
     global default_string_display_offset
-    for display in strings_to_be_displayed:
-        displayString(display[0],display[1],display[2],display[3])
 
-    # Clean up after displaying the stiring list
+    for display in strings_to_be_displayed:
+        drawer.DrawString(display[0],display[1],display[2],display[3])
+
+    # Clean up after displaying the string list
     default_string_display_offset = 0
 
 
 def displayGrid():
-    x_0 = int(round(x_spacing * PPM))
-    y_0 = int(round(y_spacing * PPM))
-
-    for x in range(x_0, SCREEN_WIDTH, x_0):
-        pygame.draw.line(screen, BLACK, (x,0), (x,SCREEN_HEIGHT))
-        addStringToDisplay(str(x/PPM), (x+2, SCREEN_HEIGHT - 10), fontSize=16)
-
-    y_max = 0
-    for y in range(y_0, SCREEN_HEIGHT, y_0):
-        pygame.draw.line(screen, BLACK, (0,SCREEN_HEIGHT - y), (SCREEN_WIDTH, SCREEN_HEIGHT - y))
-        addStringToDisplay(str(y/PPM), (0, SCREEN_HEIGHT - y+1), fontSize=16)
-
+    drawer.DisplayGrid(x_spacing, y_spacing)
 
 
 def drawRudder():
@@ -128,8 +141,7 @@ def drawRudder():
     # A "middle point" of the boat (may not be exactly the center of mass
     point = boat.GetWorldPoint(localPoint=(0.25,0.5))
     pygame_point = from_pybox2d_to_pygame_coordinates(point)
-    #addStringToDisplay(str(point), pygame_point)
-    pygame.draw.circle(screen, BLACK, pygame_point, 2)
+    drawer.DrawCircle(point, 2, BLACK)
 
     theta = boat.angle
     alpha = boat.rudder_angle
@@ -137,41 +149,27 @@ def drawRudder():
     addStringToDisplay(str(alpha), fontSize=20)
 
     l = 0.4
-    #p = (l*math.cos(theta)+point[0], l*math.sin(theta)+point[1])
-    #pygame.draw.line(screen, BLACK, pygame_point,from_pybox2d_to_pygame_coordinates(p))
 
     end_point = (l * math.cos(theta + math.pi*1.5 + alpha) + point[0], l * math.sin(theta + math.pi*1.5 + alpha) + point[1])
-    end_point = from_pybox2d_to_pygame_coordinates(end_point)
-
-    pygame.draw.line(screen, BLACK, pygame_point, end_point)
+    drawer.DrawLine(point, end_point)
 
 
 def applyAllForces():
 
-    f = 
+    # Apply the force from the propeler which is just forward with respect to the boat and with a magnitude proportional to boat.power
+    f = boat.GetWorldVector(localVector=(0, boat.power))
+    p = boat.GetWorldPoint(localPoint=(boat.localCenter))
+    boat.ApplyForce(f, p, True)
+
+    #f = boat.GetWorldVector(localVector=())
 
 
 
-# --- pygame setup ---
-pygame.init()
-#pygame.font.init()
-screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
-pygame.display.set_caption('Boat simulation enviroment')
-clock = pygame.time.Clock()
-font = None
-
-try:
-    font = pygame.font.Font(None, 20)
-except IOError:
-    try:
-        font = pygame.font.Font("freesansbold.ttf", 20)
-    except IOError:
-        print("Unable to load default font or 'freesansbold.ttf'")
-        print("Disabling text drawing.")
-        self.Print = lambda *args: 0
-        self.DrawStringAt = lambda *args: 0
 
 
+
+# Initialize the drawing object used to put everything on the screen
+drawer = framework.Framework()
 
 world = b2World(gravity=(0,0), doSleep=True)  
 
@@ -199,30 +197,12 @@ timeStep = 1.0 / 60
 vel_iters, pos_iters = 10, 10
 
 
-colors = {
-        'boat' : RED,
-}
-
-
 # The main program loop
 running = True
 while running:
 
-    # Check the event que
-    for event in pygame.event.get():
-        if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
-            # The user closed the window or pressed escape
-            running = False
-        if event.type == KEYDOWN:
-            if event.key == K_g:
-                display_grid = not display_grid
-            if event.key == K_PLUS:
-                m = min(SCREEN_HEIGHT,SCREEN_WIDTH) / PPM
-                x_spacing = min(m, x_spacing + 0.5)
-                y_spacing = min(m, y_spacing + 0.5)
-            if event.key == K_MINUS:
-                x_spacing = max(0.5, x_spacing - 0.5)
-                y_spacing = max(0.5, y_spacing - 0.5)
+    # Take care of active events like the quitting of the program
+    checkEventQue()
 
     # Clear the display
     strings_to_be_displayed = []
@@ -231,15 +211,13 @@ while running:
     keys = pygame.key.get_pressed()
     handleKeyboardInput(keys)
 
-
     # Draw the world
-    screen.fill(SCREEN_COLOR)
+    #screen.fill(SCREEN_COLOR)
+    drawer.DrawWorld(SCREEN_COLOR)
 
     display_string = ''
     display_string = display_string + str(boat.rudder_angle)
     display_string = display_string + str(boat.angle)
-
-    point = boat.GetWorldPoint(localPoint=(0.5,0.25))
 
     addStringToDisplay("sample")
 
@@ -248,29 +226,24 @@ while running:
     if display_grid:
         displayGrid()
 
-    #pygame.draw.circle(screen, BLACK, (200,200), 2) 
-    #pygame.draw.line(screen, BLACK, (100, 100), (150, 100))
-
     # First draw the bounding box
     # It consists of pairs of coordinates representing the edges of the box
     # So we draw a line for each of the pairs
     # But first we have to transform the coordinates to on screen coordinates
     for fixture in boundingBox.fixtures:
         vertices = fixture.shape.vertices
-        vertices = [(boundingBox.transform * v) * PPM for v in vertices]
-        vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
-        pygame.draw.lines(screen, BLACK, False, vertices, 2)
+        vertices = [boundingBox.transform * v for v in vertices]
+        drawer.DrawLines(vertices, width=2)
 
     # Next draw the boat
-    vertices = [(boat.transform * v) * PPM for v in boat.fixtures[0].shape.vertices]
-    vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
-    pygame.draw.polygon(screen, colors['boat'], vertices)
+    vertices = [boat.transform * v for v in boat.fixtures[0].shape.vertices]
+    drawer.DrawPolygon(vertices, RED)
 
     # Now we want to draw the rudder on the boat
     drawRudder()
 
     # Display all the strings we have collected in the loop
-    displayAllStrings()
+    drawAllStrings()
 
     # Apply all the forces acting on the boat
     applyAllForces()
@@ -281,8 +254,9 @@ while running:
     world.ClearForces()
 
     # Update the (whole) display
-    pygame.display.update()
-    clock.tick(TARGET_FPS)
+    drawer.update()
+    #pygame.display.update()
+    #clock.tick(TARGET_FPS)
 
 
 pygame.quit()

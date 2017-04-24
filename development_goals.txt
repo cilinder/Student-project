@@ -1,0 +1,10 @@
+We want to start the framework when we feel like it, that means running pygame.init() and such.
+So we need an init method here as well. (Or maybe something more aking to run()).
+
+We want the framework to handle all the drawing for us and the main program to take care of the physics and actions.
+May want to reorganize this at a later date for the main to only handle data transfer between parts.
+
+The only problem now is how we want to handle the keyboard.
+Eventualy we will only want to select the parameters of learning and the learning algorithm and maybe handle 
+the data for the visualization (only through the data transfer side).
+

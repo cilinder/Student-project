@@ -48,7 +48,17 @@ class Framework:
     def from_pygame_to_pybox2d_coordinates(self, point):
         return (point[0]/PPM, (SCREEN_HEIGHT - point[1])/PPM)
 
-    def DrawString(self, string, position, color=BLACK, fontSize=15):
+    def getPPM(self):
+        return PPM
+
+    def getWidth(self):
+        return SCREEN_WIDTH
+
+    def getHeight(self):
+        return SCREEN_HEIGHT
+
+
+    def DrawString(self, string, position, color=BLACK, fontSize=20):
         if string is None:
             print("String to be displayed is empty, not displaying anything...")
             return
@@ -83,6 +93,7 @@ class Framework:
 
     def DrawCircle(self, position, radius, color=BLACK, width=0):
         position = self.from_pybox2d_to_pygame_coordinates(position)
+        radius = int(radius * PPM)
         pygame.draw.circle(self.screen, color, position, radius, width)
 
 
@@ -95,6 +106,43 @@ class Framework:
         self.screen.fill(color)
 
 
+    def DrawArrow(self, startPos, endPos, color=BLACK, width=1):
+
+
+        arrow_len = math.sqrt( (startPos[0]-endPos[0])**2 + (startPos[1]-endPos[1])**2)
+        l = arrow_len
+
+        (x_1, y_1) = startPos
+        (x_2, y_2) = endPos
+
+        alpha = 0
+        if ( x_1 != x_2):
+            #alpha = math.atan((y_2-y_1)/(x_2-x_1))
+            alpha = math.atan2((y_2-y_1),(x_2-x_1))
+        elif y_1 <= y_2:
+            alpha = math.pi/2
+        else: 
+            alpha = -math.pi/2
+
+        arrowhead_len = min(arrow_len * 0.3, 0.3)
+        v = arrowhead_len * math.sqrt(2)/2
+
+        arrowhead1_start = endPos
+        arrowhead2_start = endPos
+        
+        cos = math.cos(alpha)
+        sin = math.sin(alpha)
+        arrowhead1_end = (cos*(l - v) + sin*v + x_1, sin*(l-v) - cos*v + y_1)
+        arrowhead2_end = (cos*(l - v) + sin*(-v) + x_1, sin*(l-v) - cos*(-v) + y_1)
+        #self.DrawLine(arrowhead1_start, arrowhead1_end)
+        #self.DrawCircle(arrowhead1_end, 2)
+        #self.DrawCircle(arrowhead2_end, 2)
+
+        self.DrawLine(startPos,endPos, color, width)
+        self.DrawLine(endPos, arrowhead1_end, color, width)
+        self.DrawLine(endPos, arrowhead2_end, color, width)
+
+
     def DisplayGrid(self, x_spacing, y_spacing):
 
         x_0 = int(round(x_spacing * PPM))
@@ -102,8 +150,9 @@ class Framework:
 
         for x in range(x_0, SCREEN_WIDTH, x_0):
             pygame.draw.line(self.screen, BLACK, (x,0), (x,SCREEN_HEIGHT))
-            # First transform the coordinates back to pybox2d type because DrawString works with pybox2d coordinates
-            # A bit of a hack you could say, but as this is not a critical part of the program, the accuracy concerns and performance are not very relevant. This method is mostly used for debugging 
+            # First transform the coordinates back to pybox2d type because DrawString works with pybox2d coordinates 
+            # A bit of a hack you could say, but as this is not a critical part of the program, the accuracy concerns and performance are not very relevant. 
+            # This method is mostly used for debugging 
             location = self.from_pygame_to_pybox2d_coordinates((x+2, SCREEN_HEIGHT - 10))
             self.DrawString(str(x/PPM), location, fontSize=16)
 

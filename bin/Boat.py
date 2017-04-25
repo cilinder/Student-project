@@ -4,5 +4,10 @@ import Box2D
 from Box2D import *
 
 class Boat:
-    pass
+
+    def __init__(self, position, vertices, angle=0):
+        self.initialPosition = position
+        self.vertices = vertices
+        self.initialAngle = angle
+
 

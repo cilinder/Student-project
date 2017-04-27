@@ -8,13 +8,23 @@ import math
 import pygame
 from pygame.locals import *
 
+import tensorflow as tf
+import numpy as np
+
 import Box2D
 from Box2D import *
 
 import Boat
 from Boat import *
 
+import matplotlib.pyplot as plt
+
 import framework
+
+#########################################################
+# Initializing all the variables that will be used later
+# Should probably move this to an init or main method
+######################################################
 
 # --- constants ---
 # Box2D deals with meters, but we want to display pixels,
@@ -35,6 +45,19 @@ display_grid = False
 default_string_display_offset = 0
 offset = 0
 strings_to_be_displayed = []
+frame_by_frame_mode = False
+generate_next_frame = False
+
+
+
+
+
+#######################################
+#
+#   Methods
+#
+#####################################
+
 
 def testingFunction():
 
@@ -55,6 +78,8 @@ def checkEventQue():
     global x_spacing, y_spacing
     global pause
     global display_hud
+    global frame_by_frame_mode
+    global generate_next_frame
 
     # Check the event que
     for event in pygame.event.get():
@@ -77,6 +102,12 @@ def checkEventQue():
                 display_hud = not display_hud
             if event.key == K_r:
                 resetGame()
+            if event.key == K_f:
+                frame_by_frame_mode = not frame_by_frame_mode
+            if frame_by_frame_mode:
+                if event.key == K_n:
+                    generate_next_frame = True
+
 
 
 def handleKeyboardInput(keys):
@@ -107,18 +138,18 @@ def from_pygame_to_pybox2d_coordinates(point):
     return (point[0]/PPM, (SCREEN_HEIGHT - point[1])/PPM)
 
 
-def addStringToDisplay(string, location=None, color=(0,0,0), fontSize=20):
+def addStringToDisplay(string, position=None, color=(0,0,0), fontSize=20):
     global default_string_display_offset
 
     if string is None:
         print("String to be displayed is empty, not displaying anything...")
         return
 
-    if location is None:
-        location = from_pygame_to_pybox2d_coordinates((2, default_string_display_offset))
+    if position is None:
+        position = from_pygame_to_pybox2d_coordinates((2, default_string_display_offset))
         default_string_display_offset += fontSize
 
-    strings_to_be_displayed.append((string, location, color, fontSize))
+    strings_to_be_displayed.append((string, position, color, fontSize))
 
 
 def drawAllStrings():
@@ -201,18 +232,26 @@ def applyAllForces():
     # This means gamma is a function of the size, shape of the boat, as well as location of rudder, etc.
     # With a fixed boat and idealised water conditions this parameter is a constant
     # We should fix this constant so the boat behaves realistically 
-    gamma = 0.1
-    delta = 1
+    gamma = 1
+    # Delta contains the information of the inertial force acting on the boat when moving forward by the water and air in the form or water and air-resistance.
+    # So it is actualy a function of the shape of the boat, the density and viscosity of the water (medium) its moving through.
+    # It should be calibrated to get accurate sumilation enviroment.
+    # The surge and sway parameters can (probably are) different, but we could use the same function in principle, so we can name them similarly
+    # May need to vary the parameters with respect to the speed of the boat
+    delta_surge = 1
+    delta_sway = 2
     alpha = boat.rudder_angle
 
     # First we need the boat velocity
     velocity = boat.linearVelocity
+
+
     local_velocity = boat.GetLocalVector(velocity)
 
     # This is the of the boat swaying to the side
-    sway_vel = local_velocity[0]
+    sway_vel_magnitude = local_velocity[0]
     # This is the "forward moving" velocity component
-    surge_vel = local_velocity[1]
+    surge_vel_magnitude = local_velocity[1]
 
     # Apply the force from the propeler which is just forward with respect to the boat and with a magnitude proportional to boat.power
     f = boat.GetWorldVector(localVector=(0, boat.power))
@@ -223,38 +262,55 @@ def applyAllForces():
     #drawer.DrawArrow(p, p+f)
     boat.ApplyForce(f, p, True)
 
-    # The magnitude of the sway force vector to be applied
-    F_s = -(surge_vel)**2 * alpha * gamma
-    addStringToDisplay("F_s: " + str(F_s), fontSize=20)
-
-    addStringToDisplay("Angular vel: " + str(boat.angularVelocity))
-
+    # The magnitude of the sway force vector to be applied based on the angle of the rudder
+    # Should probably also take into account the force of the water acting on the rudder because of the propeler
+    F_s = surge_vel_magnitude**2 * math.sin(alpha) * gamma
     # Apply the sway force based on the rudder angle and boat velocity
-    f = boat.GetWorldVector(localVector=(F_s,0))
-    p = boat.GetWorldPoint(localPoint=(0.25, 0))
-
+    f = vector((F_s,0))
+    p = point((0.25, 0))
     boat.ApplyForce(f, p, True)
-    drawer.DrawArrow(p,p+f)
-    
+
+    f = vector((0.25, 0))
+    boat.ApplyForce(f, p, True)
+    #drawer.DrawArrow(p, p+f)
+
+    drawer.DrawArrow(p,p+f, color=GREEN)
+    addStringToDisplay("F_s: " + str(F_s), fontSize=20)
+    addStringToDisplay("Angular vel: " + str(boat.angularVelocity))
+    addStringToDisplay("Boat angle: " + str(boat.angle))
+
     # Now we need to apply the counter force acting on the boat by the water
     surge_velocity = (0, velocity[1])
     sway_velocity = (velocity[0], 0)
 
     p = point(boat.localCenter)
-    
+
     drawer.DrawArrow(p, p + velocity)
     drawer.DrawArrow(p, p + surge_velocity)
     drawer.DrawArrow(p, p + sway_velocity)
 
-    boat.GetWorldVector(surge_velocity)
+    #boat.ApplyForce(vector((-0.25,-0.25)), point(boat.localCenter), True)
 
+    # Apply the inertial surge force acting against the surge velocity
+    F_inertial_surge = -vector((0, np.sign(surge_vel_magnitude)*surge_vel_magnitude**2 * delta_surge))
+    p = point(boat.localCenter)
+    boat.ApplyForce(F_inertial_surge, p, True)
+    drawer.DrawArrow(p, p+F_inertial_surge, color=WHITE)
 
-    
+    # Apply the inertial sway force acting against the sway velocity
+    F_s = -vector((np.sign(sway_vel_magnitude)*sway_vel_magnitude**2 * delta_sway, 0))
+    boat.ApplyForce(F_s, point(boat.localCenter), True)
+
+    drawer.DrawArrow(point(boat.localCenter), point(boat.localCenter) + F_s, color=WHITE)
 
 
 
 def resetGame():
+    global frame_by_frame_mode 
     print("Reset")
+
+    frame_by_frame_mode = False
+
     boat.position = boat.userData.initialPosition
     boat.linearVelocity = (0,0)
     boat.angularVelocity = 0
@@ -270,64 +326,7 @@ def displayPause():
     drawer.DrawString("PAUSED", loc, color=RED, fontSize=35)
 
 
-# Initialize the drawing object used to put everything on the screen
-drawer = framework.Framework()
-PPM = drawer.getPPM()
-SCREEN_HEIGHT = drawer.getHeight()
-SCREEN_WIDTH = drawer.getWidth()
-
-world = b2World(gravity=(0,0), doSleep=True)  
-
-# Create the bounding box that holds the testing area and the boat
-boundingBox = world.CreateStaticBody(shapes=b2ChainShape(vertices=([(4,2), (20,2), (20,15), (4,15)])), position=(0, 0))
-
-
-# Create the boat
-# TODO: Create the Boat class to store the boat information
-boat_object = Boat(position=(10,5), vertices=[(0,0), (0.5,0), (0.5,1), (0.25,1.25), (0,1)], angle=0)
-#boat = world.CreateDynamicBody(position=(10,5), shapes=b2PolygonShape(vertices=([(0,0), (0.5,0), (0.5,1), (0.25,1.25), (0,1)])), userData=boat_object)
-boat = world.CreateDynamicBody(position=(10,5), userData=boat_object)
-boat_fixture = boat.CreatePolygonFixture(vertices=[(0,0), (0.5,0), (0.5,1), (0.25,1.25), (0,1)], friction=0.2, density=1)
-boat.power = 0
-boat.max_power = 2
-boat.angle = boat_object.initialAngle
-boat.rudder_angle = 0
-boat.rudder_angle_offset = -(math.pi*1.5) # This setting is for drawing the rudder on the boat, since we want to work with angles [-pi/2, pi/2] we have to offset by -(pi*3)/2
-
-"""
-test_body = world.CreateDynamicBody(position=(7,7))
-test_body_fixture = test_body.CreatePolygonFixture(box=(1,1), friction=0.2, density=1)
-test_body.ResetMassData()
-"""
-
-
-# THIS WAS ISSUE
-# And add a box fixture onto it (with a nonzero density, so it will move)
-#box = boat.CreatePolygonFixture(box=(2, 1), density=1, friction=0.3)
-
-
-# Prepare for simulation. Typically we use a time step of 1/60 of a second
-# (60Hz) and 6 velocity/2 position iterations. This provides a high quality
-# simulation in most game scenarios.
-timeStep = 1.0 / 60
-vel_iters, pos_iters = 10, 10
-
-
-# The main program loop
-running = True
-pause = False
-display_hud = True
-while running:
-
-    # Take care of active events like the quitting of the program
-    checkEventQue()
-
-    # Clear the display
-    strings_to_be_displayed = []
-
-    # This is how you can check for continious key pressing
-    keys = pygame.key.get_pressed()
-    handleKeyboardInput(keys)
+def drawWorld():
 
     # Draw the world
     #screen.fill(SCREEN_COLOR)
@@ -351,33 +350,135 @@ while running:
     vertices = [boat.transform * v for v in boat.fixtures[0].shape.vertices]
     drawer.DrawPolygon(vertices, RED)
 
-    # This is where all the temporary tests go
-    #testingFunction()
-
-
     # Now we want to draw the rudder on the boat
     drawRudder()
+
+
+    #drawAllStrings()
+
+
+
+def plotData():
+
+    
+    pass
+
+
+def recordData():
+
+    boat.saved_positions.append(boat.position)
+    boat.saved_velocities.append(boat.linearVelocity)
+
+
+
+
+
+###############################################################
+#
+# World initialization and such, should move this to a main method of sorts
+#
+###############################################################
+
+
+
+# Initialize the drawing object used to put everything on the screen
+drawer = framework.Framework()
+PPM = drawer.getPPM()
+SCREEN_HEIGHT = drawer.getHeight()
+SCREEN_WIDTH = drawer.getWidth()
+
+world = b2World(gravity=(0,0), doSleep=True)  
+
+# Create the bounding box that holds the testing area and the boat
+boundingBox = world.CreateStaticBody(shapes=b2ChainShape(vertices=([(4,2), (20,2), (20,15), (4,15)])), position=(0, 0))
+
+
+# Create the boat
+# TODO: Create the Boat class to store the boat information
+boat_object = Boat(position=(10,5), vertices=[(0,0), (0.5,0), (0.5,1), (0.25,1.25), (0,1)], angle=0)
+boat = world.CreateDynamicBody(position=boat_object.initialPosition, userData=boat_object)
+boat_fixture = boat.CreatePolygonFixture(vertices=[(0,0), (0.5,0), (0.5,1), (0.25,1.25), (0,1)], friction=0.2, density=1)
+boat.power = 0
+boat.max_power = 2
+boat.angle = boat_object.initialAngle
+boat.rudder_angle = 0
+boat.rudder_angle_offset = -(math.pi*1.5) # This setting is for drawing the rudder on the boat, since we want to work with angles [-pi/2, pi/2] we have to offset by -(pi*3)/2
+boat.saved_positions = []
+boat.saved_velocities = []
+boat.fix_in_place = False
+
+
+
+# THIS WAS ISSUE
+# And add a box fixture onto it (with a nonzero density, so it will move)
+#box = boat.CreatePolygonFixture(box=(2, 1), density=1, friction=0.3)
+
+
+# Prepare for simulation. Typically we use a time step of 1/60 of a second
+# (60Hz) and 6 velocity/2 position iterations. This provides a high quality
+# simulation in most game scenarios.
+timeStep = 1.0 / 60
+vel_iters, pos_iters = 10, 10
+
+
+# The main program loop
+running = True
+pause = False
+display_hud = True
+while running:
+    
+    # Take care of active events like the quitting of the program
+    checkEventQue()
+
+    # Clear the display
+    strings_to_be_displayed = []
+
+    if frame_by_frame_mode:
+        if generate_next_frame:
+            generate_next_frame = False
+        else:
+            drawer.DrawString("Frame by frame mode activated, press 'n' to generate next frame", position=(3.8, 1), color=RED, fontSize=25)
+            drawer.update()
+            continue
+
+    drawWorld()
+
+    # This is how you can check for continious key pressing
+    keys = pygame.key.get_pressed()
+    handleKeyboardInput(keys)
+
+
+    # This is where all the temporary tests go
+    #testingFunction()
 
 
     # Advance the world by one step
     if not pause:
         # Apply all the forces acting on the boat
         applyAllForces()
+
         world.Step(TIME_STEP, 10, 10)
         # This is done to make sure everything behaves as it should
+
+        if boat.fix_in_place:
+            boat.position = boat.userData.initialPosition
+            boat.angle = boat_object.initialAngle
+            #boat.angularVelocity = 0
+
         world.ClearForces()
 
         # Update the (whole) display
     else:
         displayPause()
 
-    # Display all the strings we have collected in the loop
-    
     if display_hud:
         displayHud()
-
-    #drawAllStrings()
+    
     drawer.update()
+
+    recordData()
+
+    #plotData()
 
 
 pygame.quit()

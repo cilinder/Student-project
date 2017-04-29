@@ -14,10 +14,12 @@ import numpy as np
 import Box2D
 from Box2D import *
 
-import Boat
-from Boat import *
+import objectData
+from objectData import *
 
 import matplotlib.pyplot as plt
+
+import datetime
 
 import framework
 
@@ -219,6 +221,10 @@ def displayHud():
     addStringToDisplay("velocity: " + display_vel, fontSize=20)
     addStringToDisplay("rudder angle: "  + str(alpha), fontSize=20)
 
+    # Display the current game timer
+    timeElapsed = drawer.StopwatchTime(stopwatch) / 1000.0
+    addStringToDisplay("time: " + str(timeElapsed) + " s", fontSize=22)
+
     drawAllStrings()
 
 
@@ -232,7 +238,7 @@ def applyAllForces():
     # This means gamma is a function of the size, shape of the boat, as well as location of rudder, etc.
     # With a fixed boat and idealised water conditions this parameter is a constant
     # We should fix this constant so the boat behaves realistically 
-    gamma = 1
+    gamma = 0.1
     # Delta contains the information of the inertial force acting on the boat when moving forward by the water and air in the form or water and air-resistance.
     # So it is actualy a function of the shape of the boat, the density and viscosity of the water (medium) its moving through.
     # It should be calibrated to get accurate sumilation enviroment.
@@ -264,15 +270,11 @@ def applyAllForces():
 
     # The magnitude of the sway force vector to be applied based on the angle of the rudder
     # Should probably also take into account the force of the water acting on the rudder because of the propeler
-    F_s = surge_vel_magnitude**2 * math.sin(alpha) * gamma
+    F_s = -surge_vel_magnitude**2 * math.sin(alpha) * gamma
     # Apply the sway force based on the rudder angle and boat velocity
     f = vector((F_s,0))
     p = point((0.25, 0))
     boat.ApplyForce(f, p, True)
-
-    f = vector((0.25, 0))
-    boat.ApplyForce(f, p, True)
-    #drawer.DrawArrow(p, p+f)
 
     drawer.DrawArrow(p,p+f, color=GREEN)
     addStringToDisplay("F_s: " + str(F_s), fontSize=20)
@@ -289,8 +291,6 @@ def applyAllForces():
     drawer.DrawArrow(p, p + surge_velocity)
     drawer.DrawArrow(p, p + sway_velocity)
 
-    #boat.ApplyForce(vector((-0.25,-0.25)), point(boat.localCenter), True)
-
     # Apply the inertial surge force acting against the surge velocity
     F_inertial_surge = -vector((0, np.sign(surge_vel_magnitude)*surge_vel_magnitude**2 * delta_surge))
     p = point(boat.localCenter)
@@ -298,6 +298,8 @@ def applyAllForces():
     drawer.DrawArrow(p, p+F_inertial_surge, color=WHITE)
 
     # Apply the inertial sway force acting against the sway velocity
+    # May need to also account for the angular velocity not just the sway velocity
+    # as the water would try to work against rotation
     F_s = -vector((np.sign(sway_vel_magnitude)*sway_vel_magnitude**2 * delta_sway, 0))
     boat.ApplyForce(F_s, point(boat.localCenter), True)
 
@@ -307,9 +309,10 @@ def applyAllForces():
 
 def resetGame():
     global frame_by_frame_mode 
-    print("Reset")
+    global goal_reached
+    global stopwatch
 
-    frame_by_frame_mode = False
+    print("Reset")
 
     boat.position = boat.userData.initialPosition
     boat.linearVelocity = (0,0)
@@ -318,6 +321,11 @@ def resetGame():
     boat.power = 0
     boat.rudder_angle = 0
 
+    frame_by_frame_mode = False
+    goal_reached = False
+    boat_object.goalReached = False
+    boat_object.time = 0
+    drawer.ResetStopwatch(stopwatch)
 
 
 def displayPause():
@@ -341,33 +349,61 @@ def drawWorld():
     # It consists of pairs of coordinates representing the edges of the box
     # So we draw a line for each of the pairs
     # But first we have to transform the coordinates to on screen coordinates
-    for fixture in boundingBox.fixtures:
+    for fixture in boundingBox.body.fixtures:
         vertices = fixture.shape.vertices
-        vertices = [boundingBox.transform * v for v in vertices]
+        vertices = [boundingBox.body.transform * v for v in vertices]
         drawer.DrawLines(vertices, width=2)
 
     # Next draw the boat
     vertices = [boat.transform * v for v in boat.fixtures[0].shape.vertices]
     drawer.DrawPolygon(vertices, RED)
 
+    # Draw the obstacle, we want this to be done automatically for all obstacles
+    for buoy in obstacles:
+        center = buoy.body.worldCenter
+        radius = buoy.radius
+        drawer.DrawCircle(center, radius)
+
     # Now we want to draw the rudder on the boat
     drawRudder()
 
+    # Draw the goal separately as it looks different from other objects
+    drawer.DrawGoal(goal)
 
-    #drawAllStrings()
 
 
 
 def plotData():
 
+    xaxis = np.linspace(0, len(boat.saved_angular_velocities)*TIME_STEP, len(boat.saved_angular_velocities))
+    plt.figure(1)
+    plt.plot(xaxis, boat.saved_angular_velocities)
+    plt.xlabel('time(seconds)')
+    plt.ylabel('angular velocity')
+    plt.savefig('/home/ros/Student_project/data/angular_vel.png', bbox_inches='tight')
+
+    plt.figure(2)
+    v = np.asarray(boat.saved_linear_velocities)
+    a = np.sqrt( v[:,0]**2 + v[:,1]**2 )
+    plt.plot(xaxis, a)
+    plt.xlabel('time(seconds)')
+    plt.ylabel('velocity')
+
+    plt.show()
     
-    pass
 
 
 def recordData():
 
     boat.saved_positions.append(boat.position)
-    boat.saved_velocities.append(boat.linearVelocity)
+    boat.saved_linear_velocities.append(boat.linearVelocity.tuple)
+    boat.saved_angular_velocities.append(boat.angularVelocity)
+
+
+def saveData():
+
+    timestamp = datetime.datetime.now().isoformat()
+    np.savez("/home/ros/Student_project/data/saved_run_"+str(timestamp), np.asarray(boat.saved_positions), np.asarray(boat.saved_linear_velocities), np.asarray(boat.saved_angular_velocities))
 
 
 
@@ -384,34 +420,53 @@ def recordData():
 # Initialize the drawing object used to put everything on the screen
 drawer = framework.Framework()
 PPM = drawer.getPPM()
+TIME_STEP = drawer.getTimeStep()
 SCREEN_HEIGHT = drawer.getHeight()
 SCREEN_WIDTH = drawer.getWidth()
 
-world = b2World(gravity=(0,0), doSleep=True)  
+world = b2World(gravity=(0,0), contactListener=framework.SimulationContactListener(), doSleep=True)  
+
 
 # Create the bounding box that holds the testing area and the boat
-boundingBox = world.CreateStaticBody(shapes=b2ChainShape(vertices=([(4,2), (20,2), (20,15), (4,15)])), position=(0, 0))
-
+boundingBox = ObjectData(position=(0,0), name='box')
+boundingBox.body = world.CreateStaticBody(shapes=b2ChainShape(vertices=([(4,2), (20,2), (20,15), (4,15)])), position=(0, 0), userData=boundingBox)
 
 # Create the boat
 # TODO: Create the Boat class to store the boat information
-boat_object = Boat(position=(10,5), vertices=[(0,0), (0.5,0), (0.5,1), (0.25,1.25), (0,1)], angle=0)
+boat_object = Boat(position=(10,3), angle=0)
 boat = world.CreateDynamicBody(position=boat_object.initialPosition, userData=boat_object)
 boat_fixture = boat.CreatePolygonFixture(vertices=[(0,0), (0.5,0), (0.5,1), (0.25,1.25), (0,1)], friction=0.2, density=1)
+boat_object.body = boat
+boat.angularDamping = 0.5
 boat.power = 0
 boat.max_power = 2
 boat.angle = boat_object.initialAngle
 boat.rudder_angle = 0
 boat.rudder_angle_offset = -(math.pi*1.5) # This setting is for drawing the rudder on the boat, since we want to work with angles [-pi/2, pi/2] we have to offset by -(pi*3)/2
 boat.saved_positions = []
-boat.saved_velocities = []
+boat.saved_linear_velocities = []
+boat.saved_angular_velocities = []
 boat.fix_in_place = False
 
 
+obstacles = []
 
-# THIS WAS ISSUE
-# And add a box fixture onto it (with a nonzero density, so it will move)
-#box = boat.CreatePolygonFixture(box=(2, 1), density=1, friction=0.3)
+buoy1 = Obstacle(position=(10,9), name='buoy1')
+buoy1.radius = 0.7
+buoy1.body = world.CreateStaticBody(position=buoy1.initialPosition, shapes=b2CircleShape(pos=buoy1.initialPosition, radius=buoy1.radius), userData=buoy1)
+buoy1.body.CreateCircleFixture(radius=buoy1.radius)
+
+buoy2 = Obstacle(position=(12,9), name='buoy2')
+buoy2.radius = 0.7
+buoy2.body = world.CreateStaticBody(position=buoy2.initialPosition, shapes=b2CircleShape(pos=buoy2.initialPosition, radius=buoy2.radius), userData=buoy2)
+buoy2.body.CreateCircleFixture(radius=buoy2.radius)
+
+obstacles.append(buoy1)
+obstacles.append(buoy2)
+
+goal = Goal(position=(11,12), width=2, height=1)
+goal.body = world.CreateStaticBody(position=goal.initialPosition, shapes=b2PolygonShape(vertices=goal.vertices), userData=goal)
+goal.body.fixtures[0].sensor = True
 
 
 # Prepare for simulation. Typically we use a time step of 1/60 of a second
@@ -425,6 +480,13 @@ vel_iters, pos_iters = 10, 10
 running = True
 pause = False
 display_hud = True
+goal_reached = False
+stopwatch = drawer.StartStopwatch()
+
+# Turn on live plotting for matplotlib
+#plt.ion()
+
+
 while running:
     
     # Take care of active events like the quitting of the program
@@ -432,6 +494,16 @@ while running:
 
     # Clear the display
     strings_to_be_displayed = []
+
+    # We have reached a goal, waiting for reset
+    if goal_reached:
+        pos = ((SCREEN_WIDTH/2 - 150), (SCREEN_HEIGHT/2 - 20))
+        #print(str(time))
+        drawer.DrawString("GOAL REACHED, time was: " + str(boat_object.time) + " s", position=pos, color=RED, transform=False, fontSize=25)
+        drawer.DrawString("press r to reset", position=(pos[0], pos[1]+20), color=RED, transform=False)
+        drawer.update()
+        continue
+
 
     if frame_by_frame_mode:
         if generate_next_frame:
@@ -447,10 +519,8 @@ while running:
     keys = pygame.key.get_pressed()
     handleKeyboardInput(keys)
 
-
     # This is where all the temporary tests go
     #testingFunction()
-
 
     # Advance the world by one step
     if not pause:
@@ -478,10 +548,21 @@ while running:
 
     recordData()
 
-    #plotData()
+
+    # Now lets check if we have reached the goal
+    if boat_object.goalReached == True:
+        goal_reached = True
+        boat_object.time = drawer.StopwatchTime(stopwatch) / 1000.0
+
+
 
 
 pygame.quit()
+
+#saveData()
+
+#plotData()
+
 print('Done!')
 
 

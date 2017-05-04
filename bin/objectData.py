@@ -31,6 +31,17 @@ class Boat(ObjectData):
         self.time = 0
 
 
+    def set_angle(self, angle):
+        self._angle = angle
+        self.body.angle = angle
+
+    def get_angle(self):
+        self._angle = self.body.angle
+        return self._angle
+
+    angle = property(get_angle, set_angle)
+
+
 class Obstacle(ObjectData):
 
     num_obstacles = 0

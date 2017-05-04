@@ -14,19 +14,18 @@ from pygame import Color, Rect
 import Box2D
 from Box2D import *
 
+import numpy as np
+
 import objectData
 
 
 # --- constants ---
 # Box2D deals with meters, but we want to display pixels,
 # so define a conversion factor:
-PPM = 30.0  # pixels per meter
-TARGET_FPS = 60
-TIME_STEP = 1.0 / TARGET_FPS
-SCREEN_WIDTH, SCREEN_HEIGHT = 640, 480
 SCREEN_COLOR = (0,0,255,0)
 BLACK = (0,0,0,0)
 RED = (255,0,0,255)
+WHITE = (255,255,255,255)
 
 
 class Framework:
@@ -36,10 +35,17 @@ class Framework:
     # We need to decide if we want to transform the coordinates or not
     # The current design decision is to add a transform=True/False parameter to all the functions, with the default being True
 
-    def __init__(self):
+    def __init__(self, screenWidth, screenHeight, PPM, targetFps):
+        # Initialize dimension variables
+        self.SCREEN_WIDTH = screenWidth
+        self.SCREEN_HEIGHT = screenHeight
+        self.PPM = PPM
+        self.TARGET_FPS = targetFps
+        self.TIME_STEP = 1.0 / targetFps
+        
         # --- pygame setup ---
         pygame.init()
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), 0, 32)
+        self.screen = pygame.display.set_mode((self.SCREEN_WIDTH, self.SCREEN_HEIGHT), 0, 32)
         pygame.display.set_caption('Boat simulation enviroment')
         self.clock = pygame.time.Clock()
         self.timer_id = 0
@@ -50,27 +56,27 @@ class Framework:
 
     def update(self):
         pygame.display.update()
-        self.clock.tick(TARGET_FPS)
+        self.clock.tick(self.TARGET_FPS)
 
     # Warning this is only accurate to a ceratain degree with no guarantees, use at your own risk!
     def from_pybox2d_to_pygame_coordinates(self, point):
-        return (int(round(point[0] * PPM)), int(round(SCREEN_HEIGHT - (point[1] * PPM))))
+        return (int(round(point[0] * self.PPM)), int(round(self.SCREEN_HEIGHT - (point[1] * self.PPM))))
 
     # Warning this is only accurate to a ceratain degree with no guarantees, use at your own risk!
     def from_pygame_to_pybox2d_coordinates(self, point):
-        return (point[0]/PPM, (SCREEN_HEIGHT - point[1])/PPM)
+        return (point[0]/self.PPM, (self.SCREEN_HEIGHT - point[1])/self.PPM)
 
     def getPPM(self):
-        return PPM
+        return self.PPM
 
     def getTimeStep(self):
-        return TIME_STEP
+        return self.TIME_STEP
 
     def getWidth(self):
-        return SCREEN_WIDTH
+        return self.SCREEN_WIDTH
 
     def getHeight(self):
-        return SCREEN_HEIGHT
+        return self.SCREEN_HEIGHT
 
 
     def DrawString(self, string, position, color=BLACK, fontSize=20, transform=True):
@@ -112,7 +118,7 @@ class Framework:
     def DrawCircle(self, position, radius, color=BLACK, width=0, transform=True):
         if transform:
             position = self.from_pybox2d_to_pygame_coordinates(position)
-            radius = int(radius * PPM)
+            radius = int(radius * self.PPM)
         pygame.draw.circle(self.screen, color, position, radius, width)
 
 
@@ -153,9 +159,6 @@ class Framework:
         sin = math.sin(alpha)
         arrowhead1_end = (cos*(l - v) + sin*v + x_1, sin*(l-v) - cos*v + y_1)
         arrowhead2_end = (cos*(l - v) + sin*(-v) + x_1, sin*(l-v) - cos*(-v) + y_1)
-        #self.DrawLine(arrowhead1_start, arrowhead1_end)
-        #self.DrawCircle(arrowhead1_end, 2)
-        #self.DrawCircle(arrowhead2_end, 2)
 
         self.DrawLine(startPos,endPos, color, width, transform)
         self.DrawLine(endPos, arrowhead1_end, color, width, transform)
@@ -171,21 +174,52 @@ class Framework:
 
     def DisplayGrid(self, x_spacing, y_spacing):
 
-        x_0 = int(round(x_spacing * PPM))
-        y_0 = int(round(y_spacing * PPM))
+        x_0 = int(round(x_spacing * self.PPM))
+        y_0 = int(round(y_spacing * self.PPM))
 
-        for x in range(x_0, SCREEN_WIDTH, x_0):
-            pygame.draw.line(self.screen, BLACK, (x,0), (x,SCREEN_HEIGHT))
-            # First transform the coordinates back to pybox2d type because DrawString works with pybox2d coordinates 
-            # A bit of a hack you could say, but as this is not a critical part of the program, the accuracy concerns and performance are not very relevant. 
-            # This method is mostly used for debugging 
-            location = self.from_pygame_to_pybox2d_coordinates((x+2, SCREEN_HEIGHT - 10))
-            self.DrawString(str(x/PPM), location, fontSize=16)
+        for x in range(x_0, self.SCREEN_WIDTH, x_0):
+            pygame.draw.line(self.screen, BLACK, (x,0), (x,self.SCREEN_HEIGHT))
 
-        for y in range(y_0, SCREEN_HEIGHT, y_0):
-            pygame.draw.line(self.screen, BLACK, (0,SCREEN_HEIGHT - y), (SCREEN_WIDTH, SCREEN_HEIGHT - y))
-            location = self.from_pygame_to_pybox2d_coordinates((0, SCREEN_HEIGHT - y+1))
-            self.DrawString(str(y/PPM), location, fontSize=16)
+            location = (x+2, self.SCREEN_HEIGHT - 10)
+            
+            x_value = x/float(self.PPM)
+            self.DrawString(str(x_value), location, fontSize=16, transform=False)
+
+        for y in range(y_0, self.SCREEN_HEIGHT, y_0):
+            pygame.draw.line(self.screen, BLACK, (0,self.SCREEN_HEIGHT - y), (self.SCREEN_WIDTH, self.SCREEN_HEIGHT - y))
+
+            location = (0, self.SCREEN_HEIGHT - y+1)
+
+            y_value = y / float(self.PPM)
+            self.DrawString(str(y_value), location, fontSize=16, transform=False)
+
+
+    def DisplayHighscores(self, highscores):
+
+        width = 300
+        height = 200
+
+        x = (self.SCREEN_WIDTH - width) // 2
+        y = (self.SCREEN_HEIGHT - height) // 2
+
+        pygame.draw.rect(self.screen, WHITE, (x, y, width, height))
+
+        self.DrawString("Highscores", (x+90, y+5), color=RED, fontSize=30, transform=False)
+
+        displacement_y = 0
+        displacement_x = 0
+        position = 1
+        for score in highscores[:10]:
+            time = str(score[0])
+            name = score[1]
+            self.DrawString(str(position) + ".)  " + time + "     " + name, (x+5+displacement_x, y+30+displacement_y), transform=False)
+            displacement_y += 30
+            position += 1
+            if position == 6:
+                displacement_x = 150
+                displacement_y = 0
+        
+
 
     def NextTimerId(self):
         self.timer_id += 1
@@ -254,6 +288,33 @@ class Framework:
         self.ResetStopwatchId()
         self.stopwatches = {}
 
+
+class RayCastCallback(b2RayCastCallback):
+    #This class captures the closest hit shape.
+    def __init__(self, **kwargs):
+        b2RayCastCallback.__init__(self)
+        self.fixture = None
+        n = kwargs["numRays"]
+        self.dist = np.zeros((1, n))
+
+    # Called for each fixture found in the query. You control how the ray proceeds
+    # by returning a float that indicates the fractional length of the ray. By returning
+    # 0, you set the ray length to zero. By returning the current fraction, you proceed
+    # to find the closest point. By returning 1, you continue with the original ray
+    # clipping.
+    def ReportFixture(self, fixture, point, normal, fraction):
+
+        self.fixture = fixture
+        self.point  = b2Vec2(point)
+        self.normal = b2Vec2(normal)
+
+        print("A raycast has been made and a ray has hit something")
+        print("it has hit at point: ", self.point)
+
+
+        # You will get this error: "TypeError: Swig director type mismatch in output value of type 'float32'"
+        # without returning a value
+        return fraction
 
 
 

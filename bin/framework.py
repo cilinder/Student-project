@@ -294,8 +294,12 @@ class RayCastCallback(b2RayCastCallback):
     def __init__(self, **kwargs):
         b2RayCastCallback.__init__(self)
         self.fixture = None
-        n = kwargs["numRays"]
-        self.dist = np.zeros((1, n))
+        self.level = kwargs["level"]
+        n = self.level.boat.number_of_rays
+        self.distances = np.zeros(n)
+        self.hits = np.zeros((n,2))
+        self.num_hits = 0
+        self.start_point = self.level.boat.position_of_camera
 
     # Called for each fixture found in the query. You control how the ray proceeds
     # by returning a float that indicates the fractional length of the ray. By returning
@@ -304,17 +308,21 @@ class RayCastCallback(b2RayCastCallback):
     # clipping.
     def ReportFixture(self, fixture, point, normal, fraction):
 
-        self.fixture = fixture
-        self.point  = b2Vec2(point)
-        self.normal = b2Vec2(normal)
+        self.hits[self.num_hits] = point
+        #self.distances[self.num_hits] = fraction * self.level.boat.view_distance
+        self.num_hits += 1
 
-        print("A raycast has been made and a ray has hit something")
-        print("it has hit at point: ", self.point)
+        #self.fixture = fixture
+        #self.point  = b2Vec2(point)
+        #self.normal = b2Vec2(normal)
 
+        #print("A raycast has been made and a ray has hit something")
+        #print("it has hit at point: ", self.point)
 
         # You will get this error: "TypeError: Swig director type mismatch in output value of type 'float32'"
         # without returning a value
-        return fraction
+        #return fraction
+        return 0
 
 
 

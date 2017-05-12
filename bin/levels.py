@@ -10,6 +10,8 @@ from Box2D import *
 import objectData
 from objectData import ObjectData, Boat, Obstacle, Goal
 
+import numpy as np
+
 import framework
 
 
@@ -32,16 +34,27 @@ class Level(object):
         # Create the bounding box that holds the testing area and the boat
         bounding_box_json = self.data["bounding_box"]
 
+        scale = 2
+
+        print(bounding_box_json["vertices"])
+        #scaled_vertices = bounding_box_json["vertices"] * 2
+        scaled_vertices = [[v[0]*scale,v[1]*scale] for v in bounding_box_json["vertices"]]
+        print(scaled_vertices)
+
         self.bounding_box = ObjectData(position=(bounding_box_json["position"]), name='box')
         self.bounding_box.body = self.world.CreateStaticBody(
-                shapes=b2ChainShape(vertices=bounding_box_json["vertices"]), 
+                shapes=b2ChainShape(vertices=scaled_vertices), 
                 position=self.bounding_box.initialPosition, 
                 userData=self.bounding_box)
 
         # Create the boat
         boat_json = self.data["boat"]
 
-        self.boat = Boat(position=boat_json["position"], angle=0)
+        scaled_position = [boat_json["position"][0] * scale, boat_json["position"][1] * scale]
+
+        self.boat = Boat(position=scaled_position, angle=boat_json["angle"])
+
+        
         self.boat.body = self.world.CreateDynamicBody(position=self.boat.initialPosition, userData=self.boat)
         self.boat.body.CreatePolygonFixture(vertices=boat_json["vertices"], friction=0.2, density=1)
         self.boat.body.angularDamping = 0.5
@@ -58,25 +71,37 @@ class Level(object):
         self.boat.goal_reached = False
         
         # The field of view angle, we can probably assume this is smaller than pi (180 degrees)
-        self.boat.FOV_angle = math.pi/2
-        self.boat.view_distance = 4
-        self.boat.number_of_rays = 10
+        self.boat.FOV_angle = math.pi * 0.75
+        self.boat.view_distance = 5
+        self.boat.number_of_rays = 100
+        self.boat.position_of_camera = (0.25,1.0)
+        self.boat.vision = []
+        self.boat.camera_mu = 0
+        self.boat.camera_sigma = 0.05
 
         self.obstacles = []
 
         for obstacle in self.data["obstacles"]:
 
-            buoy = Obstacle(position=obstacle["position"])
-            buoy.radius = obstacle["radius"]
-            buoy.body = self.world.CreateStaticBody(position=buoy.initialPosition, shapes=b2CircleShape(pos=buoy.initialPosition, radius=buoy.radius), userData=buoy)
-            buoy.body.CreateCircleFixture(radius=buoy.radius)
+            scaled_position = [obstacle["position"][0] * scale, obstacle["position"][1] * scale] 
+
+            buoy = Obstacle(position=scaled_position)
+
+            scaled_radius = obstacle["radius"] * scale
+
+            buoy.body = self.world.CreateStaticBody(position=buoy.initialPosition, shapes=b2CircleShape(pos=buoy.initialPosition, radius=scaled_radius), userData=buoy)
+            buoy.body.CreateCircleFixture(radius=scaled_radius)
             self.obstacles.append(buoy)
 
         self.goals = []
 
         for goal in self.data["goals"]:
 
-            goal = Goal(position=goal["position"], width=goal["width"], height=goal["height"])
+            scaled_position = [goal["position"][0] * scale, goal["position"][1] * scale]
+            scaled_width = goal["width"] * scale
+            scaled_height = goal["height"] * scale
+
+            goal = Goal(position=scaled_position, width=scaled_width, height=scaled_height)
             goal.body = self.world.CreateStaticBody(position=goal.initialPosition, shapes=b2PolygonShape(vertices=goal.vertices), userData=goal)
             goal.body.fixtures[0].sensor = True
 
@@ -90,6 +115,8 @@ class Level(object):
             self.highscores = []
             self.data["highscores"] = self.highscores
 
+        print(self.highscores)
+
     def save_highscores(self):
 
         self.data["highscores"] = self.highscores[:10]
@@ -101,11 +128,13 @@ class Level(object):
 
     def add_highscore(self, time, name):
 
-        print("adding score ", time, " to")
+        #print("adding score ", time, " to")
 
-        newEntry = (time, name)
+        newEntry = [time, name]
 
-        print(self.highscores)
+        for entry in self.highscores:
+            print(type(entry[0]), type(entry[1]))
+
         index = 0
 
         for i in range(len(self.highscores)):
@@ -113,13 +142,15 @@ class Level(object):
             entryTime = entry[0]
 
             if time < entryTime:
+                #print("yes:", time, entryTime, index)
                 index = i
-                print(time, entryTime, index)
                 break
 
-        print(index)
+        #print(index)
 
         self.highscores.insert(index, newEntry)
+
+        #print(self.highscores)
 
 
 

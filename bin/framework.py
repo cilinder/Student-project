@@ -35,28 +35,39 @@ class Framework:
     # We need to decide if we want to transform the coordinates or not
     # The current design decision is to add a transform=True/False parameter to all the functions, with the default being True
 
-    def __init__(self, screenWidth, screenHeight, PPM, targetFps):
+    def __init__(self, screenWidth, screenHeight, PPM, targetFps, displayWorld):
         # Initialize dimension variables
         self.SCREEN_WIDTH = screenWidth
         self.SCREEN_HEIGHT = screenHeight
         self.PPM = PPM
         self.TARGET_FPS = targetFps
         self.TIME_STEP = 1.0 / targetFps
+        self.displayWorld = displayWorld
+
         
-        # --- pygame setup ---
+        # Init pygame for the use in timing things and such, can even use it for vizualization maybe
         pygame.init()
-        self.screen = pygame.display.set_mode((self.SCREEN_WIDTH, self.SCREEN_HEIGHT), 0, 32)
-        pygame.display.set_caption('Boat simulation enviroment')
+
+        # --- pygame setup ---
+        if displayWorld:
+            self.screen = pygame.display.set_mode((self.SCREEN_WIDTH, self.SCREEN_HEIGHT), 0, 32)
+            pygame.display.set_caption('Boat simulation enviroment')
+
         self.clock = pygame.time.Clock()
         self.timer_id = 0
         self.stopwatch_id = 0
         self.timers = {}
         self.stopwatches = {}
-        font = None
+
+
+        if not displayWorld:
+            print('WARNING: displayWorld parameter set to FALSE when creating Framework object, framework will not react to any command of type Framework.drawSomething')
+            print('This is done to be able to add drawSomething calls in any part of the enviroment without having to worry about whether we should really draw something at that point in the program')
 
     def update(self):
-        pygame.display.update()
-        self.clock.tick(self.TARGET_FPS)
+        if self.displayWorld:
+            pygame.display.update()
+            self.clock.tick(self.TARGET_FPS)
 
     # Warning this is only accurate to a ceratain degree with no guarantees, use at your own risk!
     def from_pybox2d_to_pygame_coordinates(self, point):
@@ -78,8 +89,15 @@ class Framework:
     def getHeight(self):
         return self.SCREEN_HEIGHT
 
+    def getFps(self):
+        return self.clock.get_fps()
+
 
     def DrawString(self, string, position, color=BLACK, fontSize=20, transform=True):
+
+        if not self.displayWorld:
+            return
+
         if string is None:
             print("String to be displayed is empty, not displaying anything...")
             return
@@ -104,6 +122,10 @@ class Framework:
         self.screen.blit(label, position)
 
     def DrawLine(self, startPos, endPos, color=BLACK, width=1, transform=True):
+
+        if not self.displayWorld:
+            return
+
         if transform: 
             startPos = self.from_pybox2d_to_pygame_coordinates(startPos)
             endPos = self.from_pybox2d_to_pygame_coordinates(endPos)
@@ -111,11 +133,19 @@ class Framework:
 
 
     def DrawLines(self, pointList, closed=False, color=BLACK, width=1, transform=True):
+
+        if not self.displayWorld:
+            return
+
         if transform:
             pointList = [self.from_pybox2d_to_pygame_coordinates(v) for v in pointList]
         pygame.draw.lines(self.screen, color, closed, pointList, width)
 
     def DrawCircle(self, position, radius, color=BLACK, width=0, transform=True):
+
+        if not self.displayWorld:
+            return
+
         if transform:
             position = self.from_pybox2d_to_pygame_coordinates(position)
             radius = int(radius * self.PPM)
@@ -123,16 +153,28 @@ class Framework:
 
 
     def DrawPolygon(self, pointList, color=BLACK, width=0, transform=True):
+
+        if not self.displayWorld:
+            return
+
         if transform:
             pointList = [self.from_pybox2d_to_pygame_coordinates(v) for v in pointList]
         pygame.draw.polygon(self.screen, color, pointList, width)
 
 
     def DrawWorld(self, color=BLACK):
+
+        if not self.displayWorld:
+            return
+
         self.screen.fill(color)
 
 
     def DrawArrow(self, startPos, endPos, color=BLACK, width=1, transform=True):
+
+        if not self.displayWorld:
+            return
+
 
         arrow_len = math.sqrt( (startPos[0]-endPos[0])**2 + (startPos[1]-endPos[1])**2)
         l = arrow_len
@@ -166,6 +208,10 @@ class Framework:
 
 
     def DrawGoal(self, goal, transform=True):
+
+        if not self.displayWorld:
+            return
+
         vertices = [self.from_pybox2d_to_pygame_coordinates(goal.body.transform * v) for v in goal.vertices]
         self.DrawPolygon(vertices, BLACK, 2, False)
         position = (goal.initialPosition[0] + 0.3, goal.initialPosition[1] + goal.width / 2 - 0.3)
@@ -173,6 +219,10 @@ class Framework:
 
 
     def DisplayGrid(self, x_spacing, y_spacing):
+
+        if not self.displayWorld:
+            return
+
 
         x_0 = int(round(x_spacing * self.PPM))
         y_0 = int(round(y_spacing * self.PPM))
@@ -195,6 +245,10 @@ class Framework:
 
 
     def DisplayHighscores(self, highscores):
+
+        if not self.displayWorld:
+            return
+
 
         width = 300
         height = 200
@@ -309,21 +363,26 @@ class RayCastCallback(b2RayCastCallback):
     def ReportFixture(self, fixture, point, normal, fraction):
 
         self.hits[self.num_hits] = point
-        #self.distances[self.num_hits] = fraction * self.level.boat.view_distance
         self.num_hits += 1
 
-        #self.fixture = fixture
-        #self.point  = b2Vec2(point)
-        #self.normal = b2Vec2(normal)
+        """
+        # Find the point this ray was headed to, then replace that point with the intersection of the ray with whatever it hit
+        P_0 = np.asarray(self.level.boat.body.GetWorldPoint(self.level.boat.position_of_camera))
+        P_i_prime = np.asarray(point)
 
-        #print("A raycast has been made and a ray has hit something")
-        #print("it has hit at point: ", self.point)
+        end_point = (P_i_prime - (1-fraction)*P_0) / fraction
+
+        for i in range(len(self.level.boat.vision_array)):
+            P_i = self.level.boat.vision_array[i]
+            if np.allclose(P_i, end_point):
+                self.level.boat.vision_array[i] = P_i_prime
+
+        """
 
         # You will get this error: "TypeError: Swig director type mismatch in output value of type 'float32'"
         # without returning a value
         #return fraction
         return 0
-
 
 
 class SimulationContactListener(b2ContactListener):
@@ -356,7 +415,9 @@ class SimulationContactListener(b2ContactListener):
             return
 
         if otherObject.object_type == objectData.ObjectData.ObjectType.Goal:
-            boat.goalReached = True
+            boat.goal_reached = True
+        else:
+            boat.hit_obstacle = True
 
         print("The boat has hit something, the contact location is: ", contact_location.tuple)
 

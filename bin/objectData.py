@@ -30,7 +30,6 @@ class Boat(ObjectData):
         self.goalReached = False
         self.time = 0
 
-
     def set_angle(self, angle):
         self._angle = angle
         self.body.angle = angle

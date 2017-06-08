@@ -34,12 +34,11 @@ class Level(object):
         # Create the bounding box that holds the testing area and the boat
         bounding_box_json = self.data["bounding_box"]
 
-        scale = 2
+        # Scale everything by a factor
+        scale = 1
 
-        print(bounding_box_json["vertices"])
         #scaled_vertices = bounding_box_json["vertices"] * 2
         scaled_vertices = [[v[0]*scale,v[1]*scale] for v in bounding_box_json["vertices"]]
-        print(scaled_vertices)
 
         self.bounding_box = ObjectData(position=(bounding_box_json["position"]), name='box')
         self.bounding_box.body = self.world.CreateStaticBody(
@@ -69,19 +68,28 @@ class Level(object):
         self.boat.fix_in_place = False
         self.boat.time = 0
         self.boat.goal_reached = False
+        self.boat.hit_obstacle = False
         
         # The field of view angle, we can probably assume this is smaller than pi (180 degrees)
-        self.boat.FOV_angle = math.pi * 0.75
+        self.boat.FOV_angle = math.pi * 0.5 # 0.75 
         self.boat.view_distance = 5
-        self.boat.number_of_rays = 100
+        self.boat.number_of_rays = 50
         self.boat.position_of_camera = (0.25,1.0)
         self.boat.vision = []
         self.boat.camera_mu = 0
         self.boat.camera_sigma = 0.05
+        self.boat.vision_array = np.zeros((self.boat.number_of_rays, 2))
 
         self.obstacles = []
 
-        for obstacle in self.data["obstacles"]:
+        try:
+            obstacles = self.data["obstacles"]
+        except KeyError:
+            print("No obstacles in level")
+            obstacles = []
+
+
+        for obstacle in obstacles:
 
             scaled_position = [obstacle["position"][0] * scale, obstacle["position"][1] * scale] 
 
@@ -115,7 +123,6 @@ class Level(object):
             self.highscores = []
             self.data["highscores"] = self.highscores
 
-        print(self.highscores)
 
     def save_highscores(self):
 
@@ -128,12 +135,7 @@ class Level(object):
 
     def add_highscore(self, time, name):
 
-        #print("adding score ", time, " to")
-
         newEntry = [time, name]
-
-        for entry in self.highscores:
-            print(type(entry[0]), type(entry[1]))
 
         index = 0
 
@@ -142,11 +144,9 @@ class Level(object):
             entryTime = entry[0]
 
             if time < entryTime:
-                #print("yes:", time, entryTime, index)
                 index = i
                 break
 
-        #print(index)
 
         self.highscores.insert(index, newEntry)
 

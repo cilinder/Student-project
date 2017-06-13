@@ -228,7 +228,6 @@ class Enviroment:
         # First we need the boat velocity
         velocity = self.level.boat.body.linearVelocity
 
-
         local_velocity = self.level.boat.body.GetLocalVector(velocity)
 
         # This is the of the boat swaying to the side
@@ -295,6 +294,7 @@ class Enviroment:
         self.level.boat.rudder_angle = 0
 
         self.goal_reached = False
+        self.time_ticks = 0
         self.level.boat.goal_reached = False
         self.level.boat.hit_obstacle = False
         self.level.boat.time = 0
@@ -478,32 +478,16 @@ class Enviroment:
 #####################################################################################
 
 
-    def __init__(self, argv, displayWorld=True):
-
-
-        # Parse the command line arguments which include: the player name, the level to be loaded
-        try:
-            opts, args = getopt.getopt(argv, "", ["player=","level="])
-        except getopt.GetoptError:
-            print("Format: python main.py --player=\'name\' --level=\'1\'")
-            sys.exit(2)
+    def __init__(self, params):
 
         # Default values for the player and level
-        self.player_name = "Jure"
-        self.level_id = "1"
-
-        for opt, arg in opts:
-            if opt == "--player":
-                self.player_name = arg
-            if opt == "--level":
-                print('here')
-                self.level_id = arg
-
+        self.player_name = params.player_name
+        self.level_id = params.level
 
         # Initialize the drawing object used to put everything on the screen
         # Parameters are (width, height, PPM, fps)
         # maybe rename self.drawer to framework ?
-        self.drawer = framework.Framework(640, 580, 30, 60, displayWorld)
+        self.drawer = framework.Framework(640, 580, 30, 60, params.display_world)
         self.PPM = self.drawer.getPPM()
         self.TIME_STEP = self.drawer.getTimeStep()
         self.SCREEN_HEIGHT = self.drawer.getHeight()
@@ -514,9 +498,10 @@ class Enviroment:
         self.level = Level(self.level_id)
 
         # Set the number of ticks this simulation has run (how many states we have seen)
-        self.timeTicks = 0
+        self.time_ticks = 0
+        self.max_time_ticks = params.max_time_ticks
 
-        self.displayWorld = displayWorld
+        self.displayWorld = params.display_world
         self.running = True
         self.pause = False
         self.display_hud = True
@@ -531,13 +516,15 @@ class Enviroment:
         self.default_string_display_offset = 0
         self.offset = 0
         self.strings_to_be_displayed = []
-        self.manual_control = False
+        self.manual_control = params.manual_control
 
         # Turn on live plotting for matplotlib
         #plt.ion()
 
         # The callback object for handling scanning the field of vision
         self.callback = framework.RayCastCallback(level=self.level)
+
+        self.state_size = (self.level.boat.number_of_rays + 5) # 5 represents: position (2), angle (1), velocity(2)
 
 
 #################################
@@ -601,7 +588,7 @@ class Enviroment:
             self.drawWorld()
 
         # Advance the time by 1 to represent the number of time ticks
-        self.timeTicks += 1
+        self.time_ticks += 1
 
 
     def applyAction(self, action):
@@ -645,8 +632,13 @@ class Enviroment:
         dist_x = goal_pos[0] - boat_pos[0]
         dist_y = goal_pos[1] - boat_pos[1]
 
+        # We also want the angle of the boat to act as a compass
+        angle = self.level.boat.body.angle
 
-        state = np.concatenate([[dist_x], [dist_y], D])
+        # Also the velocity of the boat, so it can more easly predict its future state
+        velocity = self.level.boat.body.linearVelocity
+
+        state = np.concatenate([[dist_x, dist_y], [angle], velocity, D])
 
         state.shape = (1, len(state))
 
@@ -657,20 +649,32 @@ class Enviroment:
         """
         Returns the reward for the current state
         """
+        """
         if self.level.boat.goal_reached:
             return 1000
         elif self.level.boat.hit_obstacle:
             return -1000
         else: 
             return -1
+        """
+        if self.level.boat.goal_reached:
+            return 1
+        elif self.level.boat.hit_obstacle:
+            return -1
+        elif self.time_ticks >= self.max_time_ticks:
+            return -1
+        else:
+            return 0
 
 
     def getTimeTicks(self):
-        return self.timeTicks
+        return self.time_ticks
 
 
     def gameHasEnded(self):
         if not self.running or self.level.boat.hit_obstacle or self.level.boat.goal_reached:
+            return True
+        if self.time_ticks >= self.max_time_ticks:
             return True
         else:
             return False

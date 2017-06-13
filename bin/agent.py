@@ -23,7 +23,8 @@ class Agent:
 
         self.n_steps = 0
 
-        self.input_data_size = params.input_data_size or 52
+        # the agent_history_size parameter represents how many state frames we concatenate together before plugging them into the neural network
+        self.input_data_size = params.input_data_size * params.agent_history_size
         self.num_actions = params.num_actions or 5
         self.output_data_size = self.num_actions
 
@@ -57,11 +58,13 @@ class Agent:
 
         self.createQNets()
 
-
         # Epsilon for e-greedy action selection strategy
-        self.epsilon = params.epsilon or 0.05
+        self.epsilon = params.epsilon
+        #self.start_epsilon = params.epsilon or 1
+        #self.end_epsilon = 0.05
+        #self.decay_epsilon_by = params.decay_epsilon_by or 0.1
+        #self.decay_epsilon_every = params.decay_epsilon_every or 10000
         self.learning_rate = params.learning_rate or 0.1
-
 
         self.horizon = tf.constant(0.99)
         self.reward_measured = tf.placeholder(tf.float32)
@@ -189,7 +192,7 @@ class Agent:
 
     def select_epsilon_greedy(self, state):
 
-        action = np.zeros(5)
+        action = np.zeros(5, dtype=np.int_)
 
         if np.random.uniform() > self.epsilon:
             selected_action = self.sess.run([self.predict_action], feed_dict={self.current_state:state})
@@ -200,22 +203,25 @@ class Agent:
         return action
 
 
+
     def train_step(self, inputs, reward):
 
         self.sess.run([self.train_step], {self.inputs:inputs, self.reward_measured:reward})
 
 
-    def learn_from_transition(self, action, current_state, next_state, reward):
+    def learn_from_transition(self, current_state, action, reward, next_state, batch_size):
 
         # I don't know if I have to compute the interesting gradients sperately 
         #self.sess.run(self.interesting_gradients, {self.current_state:current_state, self.next_state:next_state, self.reward_measured:reward})
 
-        summaries, step  = self.sess.run([self.merged_summaries, self.train_step], feed_dict={self.current_state:current_state, self.next_state:next_state, self.reward_measured:reward})
+        step  = self.sess.run([self.train_step], feed_dict={self.current_state:current_state, self.next_state:next_state, self.reward_measured:reward})
+
+        summaries = self.sess.run(self.merged_summaries, {self.current_state:current_state[0].reshape(1,-1), self.next_state:next_state[0].reshape(1,-1), self.reward_measured:reward[0]})
 
         if self.n_steps % self.log_data_every == 0:
             self.writer.add_summary(summaries, self.n_steps)
 
-        self.n_steps += 1
+        self.n_steps += batch_size
 
 
     def update_frozen_network(self):

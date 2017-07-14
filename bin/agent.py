@@ -1,4 +1,5 @@
 import sys
+import math
 import tensorflow as tf
 import numpy as np
 
@@ -23,8 +24,10 @@ class Agent:
 
         self.n_steps = 0
 
+        self.test = params.test
+
         # the agent_history_size parameter represents how many state frames we concatenate together before plugging them into the neural network
-        self.input_data_size = params.input_data_size * params.agent_history_size
+        self.input_data_size = params.input_data_size
         self.num_actions = params.num_actions or 5
         self.output_data_size = self.num_actions
 
@@ -34,8 +37,10 @@ class Agent:
         # Log data after every n steps
         self.log_data_every = params.log_data_every or 10
 
+        # Record the data generated during learning or not
+        self.record_learning_data = params.record_learning_data
+
         self.run_dir = params.run_dir
-        self.run = params.run
 
         #############################################################
         #                                                           #
@@ -58,12 +63,14 @@ class Agent:
 
         self.createQNets()
 
+        # 
+        # Select epsilon decay strategy
+        self.epsilon_decay_strategy = params.epsilon_decay_strategy
         # Epsilon for e-greedy action selection strategy
         self.epsilon = params.epsilon
-        #self.start_epsilon = params.epsilon or 1
-        #self.end_epsilon = 0.05
-        #self.decay_epsilon_by = params.decay_epsilon_by or 0.1
-        #self.decay_epsilon_every = params.decay_epsilon_every or 10000
+        self.start_epsilon = params.epsilon or 1
+        self.end_epsilon = params.end_epsilon or 0.05
+        self.epsilon_decay = params.epsilon_decay or 0.05
         self.learning_rate = params.learning_rate or 0.1
 
         self.horizon = tf.constant(0.99)
@@ -77,10 +84,14 @@ class Agent:
         #
         # Select optimization algorithm
         #
-        self.trainer = tf.train.GradientDescentOptimizer(self.learning_rate)
-        #self.trainer = tf.train.RMSPropOptimizer(self.learning_rate)
-        #self.trainer = tf.train.AdamOptimizer(self.learning_rate)
-        #self.trainer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9, use_nesterov=True)
+        if params.trainer == 'Gradient_descent':
+            self.trainer = tf.train.GradientDescentOptimizer(self.learning_rate)
+        elif params.trainer == 'RMS_prop':
+            self.trainer = tf.train.RMSPropOptimizer(self.learning_rate)
+        elif params.trainer == 'Adam':
+            self.trainer = tf.train.AdamOptimizer(self.learning_rate)
+        elif params.trainer == 'Momentum':
+            self.trainer = tf.train.MomentumOptimizer(self.learning_rate, momentum=0.9, use_nesterov=True)
 
         self.gvs = self.trainer.compute_gradients(self.loss)
 
@@ -89,9 +100,9 @@ class Agent:
         #
         # Uncomment these lines to do gradient clipping
         #
-        self.capped_gvs = [(tf.clip_by_value(grad, -1, 1), var) for grad, var in self.interesting_gradients]
-        self.train_step = self.trainer.apply_gradients(self.capped_gvs)
-        #self.train_step = self.trainer.apply_gradients(self.gvs)
+        #self.capped_gvs = [(tf.clip_by_value(grad, -1, 1), var) for grad, var in self.interesting_gradients]
+        #self.train_step = self.trainer.apply_gradients(self.capped_gvs)
+        self.train_step = self.trainer.apply_gradients(self.gvs)
 
         self.sess = tf.Session()
 
@@ -111,26 +122,37 @@ class Agent:
 
 
         # Add the summary operations
-        tf.summary.scalar('loss_function', self.loss)
-        tf.summary.scalar('Qsa', self.Qsa)
+
+        self.goals_reached = tf.placeholder(tf.int32)
+        self.num_steps_in_run = tf.placeholder(tf.int32)
+        self.total_reward = tf.placeholder(tf.int32)
 
         k = 0
+        grad_summaries = []
         for grad, var in self.interesting_gradients:
-            tf.summary.scalar('gradient_'+var.name, tf.norm(grad))
+            grad_summaries.append(tf.summary.scalar('gradient_'+var.name, tf.norm(grad)))
             k+=1
 
+        W_summaries = []
+        b_summaries = []
         for i in range(len(self.W)):
-            tf.summary.histogram('W_'+str(i), self.W[i])
-            tf.summary.histogram('b_'+str(i), self.b[i])
+            W_summaries.append(tf.summary.histogram('W_'+str(i), self.W[i]))
+            b_summaries.append(tf.summary.histogram('b_'+str(i), self.b[i]))
 
-        #tf.summary.histogram('learning updates', self.train_step)
-
-        self.merged_summaries = tf.summary.merge_all()
+        self.running_summaries = tf.summary.merge([tf.summary.scalar('loss_function', self.loss), tf.summary.scalar('Qsa', self.Qsa)] + grad_summaries + W_summaries + b_summaries)
+        self.run_summaries = tf.summary.merge([tf.summary.scalar('goals_reached', self.goals_reached), tf.summary.scalar('total_reward', self.total_reward),  tf.summary.scalar('num_steps', self.num_steps_in_run)])
 
         self.writer = tf.summary.FileWriter(self.run_dir, self.sess.graph)
         
         # Create a saver to save the model 
         self.saver = tf.train.Saver([W for W in self.W] + [b for b in self.b], max_to_keep = 10)
+
+        if params.load_saved_agent:
+            self.saver.restore(self.sess, params.logdir + '/' + params.load_saved_agent)
+            for i in range(len(self.W_frozen)):
+                self.W_frozen[i] = tf.Variable(self.W[i].initialized_value())
+                self.b_frozen[i] = tf.Variable(self.b[i].initialized_value())
+
 
         init = tf.global_variables_initializer()
         self.sess.run(init)
@@ -202,6 +224,10 @@ class Agent:
 
         return action
 
+    def decay_epsilon(self):
+
+        if self.epsilon_decay_strategy == 'linear':
+            self.epsilon = max(self.epsilon - self.epsilon_decay, self.end_epsilon)
 
 
     def train_step(self, inputs, reward):
@@ -216,12 +242,19 @@ class Agent:
 
         step  = self.sess.run([self.train_step], feed_dict={self.current_state:current_state, self.next_state:next_state, self.reward_measured:reward})
 
-        summaries = self.sess.run(self.merged_summaries, {self.current_state:current_state[0].reshape(1,-1), self.next_state:next_state[0].reshape(1,-1), self.reward_measured:reward[0]})
-
-        if self.n_steps % self.log_data_every == 0:
-            self.writer.add_summary(summaries, self.n_steps)
-
         self.n_steps += batch_size
+
+    def record_running_summaries(self, current_state, action, reward, next_state):
+        
+        summaries = self.sess.run(self.running_summaries, {self.current_state:current_state, self.next_state:next_state, self.reward_measured:reward})
+
+        self.writer.add_summary(summaries, self.n_steps)
+
+    def record_run_summaries(self, run_number,  goals_reached,  total_reward, num_steps_in_run):
+
+        summaries = self.sess.run(self.run_summaries, {self.goals_reached:goals_reached, self.total_reward:total_reward, self.num_steps_in_run:num_steps_in_run})
+
+        self.writer.add_summary(summaries, run_number)
 
 
     def update_frozen_network(self):

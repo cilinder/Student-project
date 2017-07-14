@@ -11,8 +11,6 @@ class ReplayMemory:
         self.state_dim = params.input_data_size
         self.num_actions = params.num_actions
 
-        self.agent_history_size = params.agent_history_size
-
         self.total_entries = 0
         self.next_index = 0
 
@@ -45,36 +43,20 @@ class ReplayMemory:
 
     def sample(self, batch_size):
 
-        total_sample_size = batch_size * self.agent_history_size
-
-        if total_sample_size > self.total_entries:
+        if batch_size > self.total_entries:
             print('WARNING: batch size is greater than number of total elements in replay memory, returning only batch of size: ', self.total_entries)
-            total_sample_size = self.total_entries 
-            batch_size = self.total_entries / 4
+            batch_size = self.total_entries
 
-
-        batch_start = np.random.randint(np.minimum(self.max_size, self.total_entries) - total_sample_size + 1)
-        batch_end = batch_start + total_sample_size
+        batch_start = np.random.randint(np.minimum(self.max_size, self.total_entries) - batch_size + 1)
+        batch_end = batch_start + batch_size 
 
         actions = np.zeros((batch_size, self.num_actions))
-        actions[np.arange(batch_size), self.actions[batch_start : batch_end : self.agent_history_size]] = 1
+        actions[np.arange(batch_size), self.actions[batch_start : batch_end]] = 1
         current_states = self.current_states[batch_start : batch_end]
         next_states = self.next_states[batch_start : batch_end]
         rewards = self.rewards[batch_start : batch_end]
 
-        current_states = current_states.reshape(batch_size, self.state_dim * self.agent_history_size)
-        next_states = next_states.reshape(batch_size, self.state_dim * self.agent_history_size)
-        rewards = np.sum(rewards.reshape(batch_size, self.agent_history_size), axis=1)
-
         return (current_states, actions, rewards, next_states, batch_size)
-
-
-
-    def concat_frames(self, num_frames):
-
-
-        pass
-
 
 
 

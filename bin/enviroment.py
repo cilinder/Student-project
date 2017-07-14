@@ -402,6 +402,8 @@ class Enviroment:
         # Rotation by phi ?
         R = np.array([[np.cos(phi), -np.sin(phi)], [np.sin(phi), np.cos(phi)]])
 
+        self.level.boat.vision_array_changes.fill(0)
+
         i = 0
         for alpha in angles:
             end_point = np.asarray(P) + d * R.dot(f(alpha))
@@ -447,6 +449,7 @@ class Enviroment:
         indices = [int(ind) for ind in indices]
 
         self.level.boat.vision_array[indices] = ray_intersections
+        self.level.boat.vision_array_changes[indices] = 1
 
         for point in self.level.boat.vision_array:
             self.drawer.DrawCircle(point, 0.04, color=GREEN)
@@ -487,7 +490,7 @@ class Enviroment:
         # Initialize the drawing object used to put everything on the screen
         # Parameters are (width, height, PPM, fps)
         # maybe rename self.drawer to framework ?
-        self.drawer = framework.Framework(640, 580, 30, 60, params.display_world)
+        self.drawer = framework.Framework(640, 580, PPM=30, targetFps=params.ticks_per_second, displayWorld=params.display_world)
         self.PPM = self.drawer.getPPM()
         self.TIME_STEP = self.drawer.getTimeStep()
         self.SCREEN_HEIGHT = self.drawer.getHeight()
@@ -524,7 +527,8 @@ class Enviroment:
         # The callback object for handling scanning the field of vision
         self.callback = framework.RayCastCallback(level=self.level)
 
-        self.state_size = (self.level.boat.number_of_rays + 5) # 5 represents: position (2), angle (1), velocity(2)
+        #self.state_size = (self.level.boat.number_of_rays + 5) # 5 represents: position (2), angle (1), velocity(2)
+        self.state_size = 5
 
 
 #################################
@@ -621,9 +625,15 @@ class Enviroment:
         n = len(self.level.boat.vision_array)
         p_0 = self.level.boat.body.GetWorldPoint(self.level.boat.position_of_camera)
 
+        """
         D = (self.level.boat.vision_array - p_0)**2
         D = np.sum(D, axis=1)
         D = np.sqrt(D)
+
+        D[~self.level.boat.vision_array_changes] = self.level.boat.view_distance * 10
+
+        D = D / (self.level.boat.view_distance * 10)
+        """
 
         # Add the x and y-distance to the goal, so the agent is able to effectively find it
         # This represents a gps location of the goal
@@ -633,12 +643,13 @@ class Enviroment:
         dist_y = goal_pos[1] - boat_pos[1]
 
         # We also want the angle of the boat to act as a compass
-        angle = self.level.boat.body.angle
+        angle = self.level.boat.body.angle % (2*math.pi)
 
         # Also the velocity of the boat, so it can more easly predict its future state
         velocity = self.level.boat.body.linearVelocity
 
-        state = np.concatenate([[dist_x, dist_y], [angle], velocity, D])
+        #state = np.concatenate([[dist_x, dist_y], [angle], velocity, D])
+        state = np.concatenate([[dist_x, dist_y], [angle], velocity])
 
         state.shape = (1, len(state))
 
@@ -658,13 +669,13 @@ class Enviroment:
             return -1
         """
         if self.level.boat.goal_reached:
-            return 1
+            return 100
         elif self.level.boat.hit_obstacle:
-            return -1
+            return -100
         elif self.time_ticks >= self.max_time_ticks:
-            return -1
+            return -100
         else:
-            return 0
+            return -1
 
 
     def getTimeTicks(self):

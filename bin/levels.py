@@ -73,12 +73,13 @@ class Level(object):
         # The field of view angle, we can probably assume this is smaller than pi (180 degrees)
         self.boat.FOV_angle = math.pi * 0.5 # 0.75 
         self.boat.view_distance = 5
-        self.boat.number_of_rays = 50
+        self.boat.number_of_rays = 10
         self.boat.position_of_camera = (0.25,1.0)
         self.boat.vision = []
         self.boat.camera_mu = 0
         self.boat.camera_sigma = 0.05
         self.boat.vision_array = np.zeros((self.boat.number_of_rays, 2))
+        self.boat.vision_array_changes = np.zeros(self.boat.number_of_rays, dtype=bool)
 
         self.obstacles = []
 
